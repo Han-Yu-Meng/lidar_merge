@@ -1,0 +1,23 @@
+name: "lidar_merge"
+version: "0.1.0"
+description: "Merge LiDARs"
+maintainers:
+  - name: "fins"
+    email: "fins@sjtu.edu.cn"
+depends:
+  Eigen3: "3.4.0"
+  livox_msg: "1.0.1"
+  visualization_msgs: "system"
+  geometry_msgs: "system"
+  tf2_eigen: "system"
+
+recipes:
+  livox_msg:
+    git: "https://github.com/Han-Yu-Meng/livox_msg.git"
+    build_system: "cmake"
+    versions:
+      "1.0.1":
+        tag: "v1.0.1"
+        
+licenses:
+  - "MIT"
