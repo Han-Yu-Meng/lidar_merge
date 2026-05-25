@@ -62,24 +62,29 @@ public:
         config_.filter_box_min_z = config.get("filter_box_min_z", -0.5);
         config_.filter_box_max_z = config.get("filter_box_max_z", 1.5);
         config_.lidar_blind_zone = config.get("lidar_blind_zone", 0.05);
+
+        target_frame_id_ = config_.filter_target_frame;
     }
 
 private:
     void on_lidar1_callback(const fins::Msg<CustomMsg>& msg) {
         std::lock_guard<std::mutex> lock(data_mtx_);
-        cache1_ = msg;
+        cache1_ = msg.ptr();
+        cache1_ts_ = msg.acq_time;
         try_merge();
     }
 
     void on_lidar2_callback(const fins::Msg<CustomMsg>& msg) {
         std::lock_guard<std::mutex> lock(data_mtx_);
-        cache2_ = msg;
+        cache2_ = msg.ptr();
+        cache2_ts_ = msg.acq_time;
         try_merge();
     }
 
     void on_tf_lidar1_to_target_callback(const fins::Msg<geometry_msgs::msg::TransformStamped>& msg) {
         std::lock_guard<std::mutex> lock(data_mtx_);
         tf_lidar1_to_target_ = tf2::transformToEigen(*msg);
+        target_frame_id_ = msg->header.frame_id;
         tf_lidar1_to_target_received_ = true;
     }
 
@@ -92,15 +97,15 @@ private:
     void try_merge() {
         if (!cache1_ || !cache2_) return;
 
-        double t1 = fins::to_seconds(cache1_.acq_time);
-        double t2 = fins::to_seconds(cache2_.acq_time);
+        double t1 = fins::to_seconds(cache1_ts_);
+        double t2 = fins::to_seconds(cache2_ts_);
         double dt = std::abs(t1 - t2);
 
         if (dt > 0.005) {
             if (t1 < t2) {
-                cache1_ = fins::Msg<CustomMsg>();
+                cache1_.reset();
             } else {
-                cache2_ = fins::Msg<CustomMsg>();
+                cache2_.reset();
             }
             return;
         }
@@ -111,16 +116,17 @@ private:
 
         auto msg1 = cache1_;
         auto msg2 = cache2_;
-        cache1_ = fins::Msg<CustomMsg>();
-        cache2_ = fins::Msg<CustomMsg>();
+        auto ts1 = cache1_ts_;
+        cache1_.reset();
+        cache2_.reset();
 
         // T_lidar1_lidar2 = T_target_lidar1^-1 * T_target_lidar2
         Eigen::Isometry3d tf_lidar2_to_1 = tf_lidar1_to_target_.inverse() * tf_lidar2_to_target_;
 
-        do_merge(msg1, msg2, tf_lidar2_to_1);
+        do_merge(msg1, msg2, ts1, tf_lidar2_to_1);
     }
 
-    void do_merge(const fins::Msg<CustomMsg>& msg1, const fins::Msg<CustomMsg>& msg2, const Eigen::Isometry3d& tf_lidar2_to_1) {
+    void do_merge(const CustomMsg::ConstSharedPtr& msg1, const CustomMsg::ConstSharedPtr& msg2, fins::AcqTime ts, const Eigen::Isometry3d& tf_lidar2_to_1) {
         if (msg1->points.empty() || msg2->points.empty()) return;
 
         uint64_t dt_ns = 0;
@@ -179,19 +185,18 @@ private:
         merged.header.frame_id = msg1->header.frame_id;
         merged.timebase = (earlier_lidar_id == 1) ? msg1->timebase : msg2->timebase;
 
-        send("merged_cloud", merged, msg1.acq_time);
+        send("merged_cloud", merged, ts);
 
         if (enable_box && required("filter_box_marker")) {
-            publish_filter_box_marker(msg1.acq_time);
+            publish_filter_box_marker(ts);
         }
     }
 
     void publish_filter_box_marker(fins::AcqTime ts) {
         visualization_msgs::msg::MarkerArray marker_array;
         visualization_msgs::msg::Marker marker;
-        
-        marker.header.frame_id = config_.filter_target_frame;
-        // marker.header.stamp = ... // Fins will handle stamp if we send with ts
+    
+        marker.header.frame_id = target_frame_id_;
         marker.ns = "filter_box";
         marker.id = 0;
         marker.type = visualization_msgs::msg::Marker::CUBE;
@@ -218,9 +223,12 @@ private:
     Config config_;
     std::mutex data_mtx_;
     
-    fins::Msg<CustomMsg> cache1_;
-    fins::Msg<CustomMsg> cache2_;
+    CustomMsg::ConstSharedPtr cache1_;
+    CustomMsg::ConstSharedPtr cache2_;
+    fins::AcqTime cache1_ts_;
+    fins::AcqTime cache2_ts_;
     
+    std::string target_frame_id_;
     Eigen::Isometry3d tf_lidar1_to_target_{Eigen::Isometry3d::Identity()};
     Eigen::Isometry3d tf_lidar2_to_target_{Eigen::Isometry3d::Identity()};
     
