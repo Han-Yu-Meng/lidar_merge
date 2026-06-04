@@ -10,6 +10,7 @@ depends:
   visualization_msgs: "system"
   geometry_msgs: "system"
   tf2_eigen: "system"
+  OpenMP: "system"
 
 recipes:
   livox_msg:
