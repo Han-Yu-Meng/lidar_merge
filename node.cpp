@@ -194,15 +194,16 @@ private:
         send("merged_cloud", merged, ts);
 
         if (enable_box && required("filter_box_marker")) {
-            publish_filter_box_marker(ts);
+            publish_filter_box_marker(merged.header.stamp, ts);
         }
     }
 
-    void publish_filter_box_marker(fins::AcqTime ts) {
+    void publish_filter_box_marker(const builtin_interfaces::msg::Time& stamp, fins::AcqTime ts) {
         visualization_msgs::msg::MarkerArray marker_array;
         visualization_msgs::msg::Marker marker;
-    
+
         marker.header.frame_id = target_frame_id_;
+        marker.header.stamp = stamp;
         marker.ns = "filter_box";
         marker.id = 0;
         marker.type = visualization_msgs::msg::Marker::CUBE;
@@ -221,6 +222,11 @@ private:
         marker.color.g = 0.0;
         marker.color.b = 0.0;
         marker.color.a = 0.4;
+
+        marker.frame_locked = true;
+
+        marker.lifetime.sec = 0;
+        marker.lifetime.nanosec = 200000000; // 0.2s
 
         marker_array.markers.push_back(marker);
         send("filter_box_marker", marker_array, ts);
