@@ -35,6 +35,8 @@ public:
         double filter_box_min_z = -0.5;
         double filter_box_max_z = 1.5;
         double lidar_blind_zone = 0.05;
+        bool enable_z_filter = true;
+        double filter_z_min = 0.0;
     };
 
     void define() override {
@@ -62,6 +64,8 @@ public:
         config_.filter_box_min_z = config.get("filter_box_min_z", -0.5);
         config_.filter_box_max_z = config.get("filter_box_max_z", 1.5);
         config_.lidar_blind_zone = config.get("lidar_blind_zone", 0.05);
+        config_.enable_z_filter = config.get("enable_z_filter", true);
+        config_.filter_z_min = config.get("filter_z_min", 0.0);
 
         target_frame_id_ = config_.filter_target_frame;
     }
@@ -140,6 +144,9 @@ private:
         double blind_sq = config_.lidar_blind_zone * config_.lidar_blind_zone;
         bool check_blind = (config_.lidar_blind_zone > 1e-4);
         bool enable_box = config_.enable_box_filter;
+        bool enable_z = config_.enable_z_filter;
+        bool need_target_transform = enable_box || enable_z;
+        double z_min = config_.filter_z_min;
 
         auto is_in_box = [&](const Eigen::Vector3d& pt_target) {
             return (pt_target.x() >= config_.filter_box_min_x && pt_target.x() <= config_.filter_box_max_x &&
@@ -152,12 +159,13 @@ private:
             // Process msg1
             for (const auto& pt : msg1->points) {
                 if (check_blind && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) < blind_sq) continue;
-                
-                if (enable_box) {
+
+                if (need_target_transform) {
                     Eigen::Vector3d pt_target = tf_lidar1_to_target_ * Eigen::Vector3d(pt.x, pt.y, pt.z);
-                    if (is_in_box(pt_target)) continue;
+                    if (enable_box && is_in_box(pt_target)) continue;
+                    if (enable_z && pt_target.z() < z_min) continue;
                 }
-                
+
                 CustomPoint new_pt = pt;
                 new_pt.offset_time = pt.offset_time + (earlier_lidar_id == 1 ? 0 : dt_ns);
                 merged.points.push_back(new_pt);
@@ -170,13 +178,14 @@ private:
             for (const auto& pt : msg2->points) {
                 if (check_blind && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) < blind_sq) continue;
 
-                if (enable_box) {
+                if (need_target_transform) {
                     Eigen::Vector3d pt_target = tf_lidar2_to_target_ * Eigen::Vector3d(pt.x, pt.y, pt.z);
-                    if (is_in_box(pt_target)) continue;
+                    if (enable_box && is_in_box(pt_target)) continue;
+                    if (enable_z && pt_target.z() < z_min) continue;
                 }
 
                 Eigen::Vector3d pt_in_lidar1 = tf_lidar2_to_1 * Eigen::Vector3d(pt.x, pt.y, pt.z);
-                
+
                 CustomPoint new_pt = pt;
                 new_pt.x = pt_in_lidar1.x();
                 new_pt.y = pt_in_lidar1.y();
